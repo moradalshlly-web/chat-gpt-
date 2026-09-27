@@ -1,0 +1,52 @@
+# MOROAI SNAPSHOT 2026-09-27T09:41:20Z
+
+## Git
+?? knowledge/
+2cbedb5 Initial MOROAI core
+
+## Files
+./.gitignore
+./0
+./MOROAI_FULL_AUDIT.txt
+./agents/AgentCore.js
+./cd
+./core/.patch-real-test.js
+./core/.patch-real-test.js.moro-backup
+./core/ActionValidator.js
+./core/AgentLoop.js
+./core/AgentLoop.js.bak
+./core/AgentLoop.js.bak4
+./core/AgentLoop.js.bak5
+./core/AgentLoop.js.bak6
+./core/CodingBrain.js
+./core/CodingBrain.js.bak2
+./core/CodingBrain.js.bak3
+./core/CodingBrain.js.bak4
+./core/CodingBrain.js.bak5
+./core/ExecutionEngine.js
+./core/ExecutionEngine.js.bak
+./core/ExecutionEngine.js.bak2
+./core/PatchEngine.js
+./core/Planner.js
+./core/Planner.js.bak
+./core/Planner.js.bak2
+./core/Planner.js.bak3
+./core/PromptEngine.js
+./core/RepairEngine.js
+./core/RepositoryMap.js
+./core/VerificationEngine.js
+./core/cli.js
+./core/cli.js.bak
+./core/cli.js.bak2
+./core/doctor.js
+./core/index.js
+./knowledge/MOROAI_KNOWLEDGE_INDEX.md
+./knowledge/research/OPEN_SOURCE_ARCHITECTURE_RESEARCH.md
+./knowledge/research/RESEARCH_PROTOCOL.md
+./knowledge/snapshots/2026-09-27_repository_snapshot.txt
+./memory/MemoryStore.js
+./package.json
+./tools/FileSystemTool.js
+./tools/SearchTool.js
+./tools/ShellTool.js
+./tools/ToolRegistry.js
