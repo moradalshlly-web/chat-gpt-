@@ -1,0 +1,284 @@
+export class ExecutionEngine {
+  constructor({ agent, registry }) {
+    this.agent = agent;
+    this.registry = registry;
+  }
+
+  async executeAction(action) {
+    if (!action || typeof action !== "object") {
+      throw new Error("INVALID_ACTION");
+    }
+
+    const type = String(action.type || "").toUpperCase();
+
+    if (!type) {
+      throw new Error("ACTION_TYPE_REQUIRED");
+    }
+
+    /*
+     * READ
+     * Read a single repository file.
+     */
+    if (type === "READ") {
+      if (!action.target) {
+        throw new Error("READ_TARGET_REQUIRED");
+      }
+
+      const result = await this.registry.execute(
+        "read_file",
+        action.target
+      );
+
+      return {
+        type,
+        success: true,
+        target: action.target,
+        result
+      };
+    }
+
+    /*
+     * SEARCH
+     * Search source files for a query.
+     */
+    if (type === "SEARCH") {
+      if (!action.query) {
+        throw new Error("SEARCH_QUERY_REQUIRED");
+      }
+
+      const result = await this.registry.execute(
+        "search_code",
+        action.query
+      );
+
+      return {
+        type,
+        success: true,
+        query: action.query,
+        result
+      };
+    }
+
+    /*
+     * REPOSITORY_MAP
+     * Build a structured map of the workspace.
+     */
+    if (type === "REPOSITORY_MAP") {
+      const result = await this.registry.execute(
+        "repository_map"
+      );
+
+      return {
+        type,
+        success: true,
+        result
+      };
+    }
+
+    /*
+     * LIST
+     */
+    if (type === "LIST") {
+      const target = action.target || ".";
+
+      const result = await this.registry.execute(
+        "list_files",
+        target
+      );
+
+      return {
+        type,
+        success: true,
+        target,
+        result
+      };
+    }
+
+    /*
+     * FILE_EXISTS
+     */
+    if (type === "FILE_EXISTS") {
+      if (!action.target) {
+        throw new Error("FILE_TARGET_REQUIRED");
+      }
+
+      const result = await this.registry.execute(
+        "file_exists",
+        action.target
+      );
+
+      return {
+        type,
+        success: true,
+        target: action.target,
+        result
+      };
+    }
+
+    /*
+     * WRITE
+     *
+     * Writes are explicitly controlled by AgentCore.
+     */
+    if (type === "WRITE") {
+      if (!this.agent.config.allowFileWrite) {
+        throw new Error("FILE_WRITE_DISABLED");
+      }
+
+      if (!this.agent.config.requirePlanBeforeWrite) {
+        throw new Error("WRITE_PLAN_REQUIRED");
+      }
+
+      if (!action.target) {
+        throw new Error("WRITE_TARGET_REQUIRED");
+      }
+
+      if (typeof action.content !== "string") {
+        throw new Error("WRITE_CONTENT_REQUIRED");
+      }
+
+      const result = await this.registry.execute(
+        "write_file",
+        action.target,
+        action.content
+      );
+
+      return {
+        type,
+        success: true,
+        target: action.target,
+        result
+      };
+    }
+
+    /*
+     * SHELL
+     *
+     * Shell execution remains controlled by ShellTool.
+     */
+    if (type === "SHELL") {
+      if (!this.agent.config.allowShell) {
+        throw new Error("SHELL_DISABLED");
+      }
+
+      if (!action.command) {
+        throw new Error("SHELL_COMMAND_REQUIRED");
+      }
+
+      const result = await this.registry.execute(
+        "shell",
+        action.command
+      );
+
+      return {
+        type,
+        success: result.code === 0,
+        command: action.command,
+        result
+      };
+    }
+
+    /*
+     * TEST
+     *
+     * Run the project's available test command.
+     * If no test script exists, npm exits non-zero and
+     * the result is still returned for diagnosis.
+     */
+    if (type === "TEST") {
+      const result = await this.registry.execute(
+        "shell",
+        "npm test -- --runInBand"
+      );
+
+      return {
+        type,
+        success: result.code === 0,
+        result
+      };
+    }
+
+    /*
+     * ENVIRONMENT CHECK
+     */
+    if (type === "VERIFY_ENVIRONMENT") {
+      const result = await this.registry.execute(
+        "shell",
+        "node --version && npm --version"
+      );
+
+      return {
+        type,
+        success: result.code === 0,
+        result
+      };
+    }
+
+    /*
+     * TASK ANALYSIS
+     *
+     * This is intentionally descriptive for now.
+     * The future reasoning/model layer will turn this
+     * into concrete actions.
+     */
+    if (type === "ANALYZE_TASK") {
+      return {
+        type,
+        success: true,
+        analysis: {
+          task: String(action.prompt || ""),
+          requiresRepositoryInspection: true,
+          requiresPlanning: true,
+          requiresVerification: true
+        }
+      };
+    }
+
+    throw new Error(`UNSUPPORTED_ACTION: ${type}`);
+  }
+
+  async executePlan(actions) {
+    if (!Array.isArray(actions)) {
+      throw new Error("INVALID_ACTION_PLAN");
+    }
+
+    const results = [];
+
+    for (const action of actions) {
+      try {
+        const result = await this.executeAction(action);
+
+        results.push(result);
+
+        /*
+         * Stop immediately after a failed executable action.
+         */
+        if (result && result.success === false) {
+          return {
+            success: false,
+            results,
+            failedAction: action
+          };
+        }
+      } catch (error) {
+        results.push({
+          type: action?.type || "UNKNOWN",
+          success: false,
+          error: error.message
+        });
+
+        return {
+          success: false,
+          results,
+          failedAction: action,
+          error: error.message
+        };
+      }
+    }
+
+    return {
+      success: true,
+      results
+    };
+  }
+}

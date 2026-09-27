@@ -1,0 +1,334 @@
+import readline from "node:readline";
+import process from "node:process";
+
+import { AgentCore } from "../agents/AgentCore.js";
+import { ToolRegistry } from "../tools/ToolRegistry.js";
+import { FileSystemTool } from "../tools/FileSystemTool.js";
+import { SearchTool } from "../tools/SearchTool.js";
+import { ShellTool } from "../tools/ShellTool.js";
+
+import { RepositoryMap } from "./RepositoryMap.js";
+import { Planner } from "./Planner.js";
+import { AgentLoop } from "./AgentLoop.js";
+import { ExecutionEngine } from "./ExecutionEngine.js";
+import { VerificationEngine } from "./VerificationEngine.js";
+
+const root = process.cwd();
+
+const agent = new AgentCore();
+const registry = new ToolRegistry();
+
+const filesystem = new FileSystemTool(root);
+const search = new SearchTool(root);
+const shell = new ShellTool(root);
+const repositoryMap = new RepositoryMap(root);
+const planner = new Planner();
+
+registry.register(
+  "list_files",
+  target => filesystem.list(target)
+);
+
+registry.register(
+  "read_file",
+  target => filesystem.read(target)
+);
+
+registry.register(
+  "write_file",
+  (target, content) =>
+    filesystem.write(target, content)
+);
+
+registry.register(
+  "file_exists",
+  target => filesystem.exists(target)
+);
+
+registry.register(
+  "search_code",
+  query => search.search(query)
+);
+
+registry.register(
+  "shell",
+  command => shell.execute(command)
+);
+
+registry.register(
+  "repository_map",
+  () => repositoryMap.build()
+);
+
+registry.register(
+  "create_plan",
+  prompt => planner.createPlan(prompt)
+);
+
+const execution = new ExecutionEngine({
+  agent,
+  registry
+});
+
+const verification = new VerificationEngine({
+  registry
+});
+
+const loop = new AgentLoop({
+  agent,
+  registry,
+  planner,
+  execution,
+  verification
+});
+
+function printRepository(map) {
+  console.log("");
+  console.log("=== REPOSITORY ===");
+  console.log(`Files detected: ${map.totalFiles}`);
+  console.log(`Directories: ${map.totalDirectories}`);
+  console.log(`Workspace: ${map.root}`);
+}
+
+function printPlan(plan) {
+  console.log("");
+  console.log("=== PLAN ===");
+  console.log(JSON.stringify(plan, null, 2));
+}
+
+function printAgentState(state) {
+  console.log("");
+  console.log("=== AGENT STATE ===");
+  console.log(`Status: ${state.status}`);
+
+  if (state.task) {
+    console.log(`Task: ${state.task}`);
+  }
+
+  if (state.repository) {
+    console.log(
+      `Repository: ${state.repository.totalFiles} files / ${state.repository.totalDirectories} directories`
+    );
+  }
+
+  if (state.observations?.length) {
+    console.log("");
+    console.log("OBSERVATIONS:");
+
+    for (const observation of state.observations) {
+      console.log(
+        `[${observation.step}] ${observation.message}`
+      );
+    }
+  }
+
+  if (state.result) {
+    console.log("");
+    console.log("RESULT:");
+    console.log(JSON.stringify(state.result, null, 2));
+  }
+}
+
+async function inspectRepository() {
+  const map = await repositoryMap.build();
+  printRepository(map);
+  return map;
+}
+
+async function handleInput(input) {
+  const command = input.trim();
+
+  if (!command) {
+    return;
+  }
+
+  if (
+    command === "exit" ||
+    command === "/exit" ||
+    command === "quit" ||
+    command === "/quit"
+  ) {
+    console.log("MoroAI 1 > EXIT");
+    process.exit(0);
+  }
+
+  if (
+    command === "help" ||
+    command === "/help"
+  ) {
+    console.log("");
+    console.log("COMMANDS:");
+    console.log("  /help            Show commands");
+    console.log("  /repo            Inspect repository");
+    console.log("  /status          Show agent status");
+    console.log("  /plan TEXT       Create a plan");
+    console.log("  /run TEXT        Analyze task through AgentLoop");
+    console.log("  /search TEXT     Search repository");
+    console.log("  /read FILE       Read a file");
+    console.log("  /exit            Exit MoroAI");
+    console.log("");
+    return;
+  }
+
+  if (
+    command === "repo" ||
+    command === "/repo"
+  ) {
+    try {
+      await inspectRepository();
+    } catch (error) {
+      console.log("");
+      console.log("=== REPOSITORY ERROR ===");
+      console.log(error.message);
+    }
+
+    return;
+  }
+
+  if (
+    command === "status" ||
+    command === "/status"
+  ) {
+    console.log("");
+    console.log("=== MOROAI 1 ===");
+    console.log(JSON.stringify(agent.status(), null, 2));
+    console.log(`Workspace: ${root}`);
+    console.log("");
+    return;
+  }
+
+  if (command.startsWith("/plan ")) {
+    const prompt = command.slice(6).trim();
+
+    const plan = planner.createPlan(prompt);
+
+    printPlan(plan);
+    return;
+  }
+
+  if (command.startsWith("/search ")) {
+    const query = command.slice(8).trim();
+
+    if (!query) {
+      console.log("ERROR: EMPTY_SEARCH");
+      return;
+    }
+
+    const results = await search.search(query);
+
+    console.log("");
+    console.log("=== SEARCH RESULTS ===");
+
+    if (!results.length) {
+      console.log("No matches found.");
+      return;
+    }
+
+    for (const result of results) {
+      console.log(
+        `${result.file} -> ${result.match}`
+      );
+    }
+
+    console.log("");
+    return;
+  }
+
+  if (command.startsWith("/read ")) {
+    const target = command.slice(6).trim();
+
+    if (!target) {
+      console.log("ERROR: EMPTY_FILE");
+      return;
+    }
+
+    const exists = await filesystem.exists(target);
+
+    if (!exists) {
+      console.log("ERROR: FILE_NOT_FOUND");
+      return;
+    }
+
+    const content = await filesystem.read(target);
+
+    console.log("");
+    console.log(`=== FILE: ${target} ===`);
+    console.log(content);
+    console.log("");
+    return;
+  }
+
+  if (command.startsWith("/run ")) {
+    const prompt = command.slice(5).trim();
+
+    if (!prompt) {
+      console.log("ERROR: EMPTY_TASK");
+      return;
+    }
+
+    try {
+      const state = await loop.run(prompt);
+      printAgentState(state);
+    } catch (error) {
+      console.log("");
+      console.log("=== AGENT ERROR ===");
+      console.log(error.message);
+    }
+
+    return;
+  }
+
+  console.log("");
+  console.log("MoroAI 1 >");
+  console.log("Command not recognized.");
+  console.log("Use /help");
+}
+
+async function start() {
+  console.log("=================================");
+  console.log("       MOROAI 1 CLI");
+  console.log("=================================");
+
+  try {
+    await inspectRepository();
+  } catch (error) {
+    console.log("");
+    console.log("=== STARTUP ERROR ===");
+    console.log(error.message);
+  }
+
+  console.log("");
+  console.log("Type /help for commands.");
+  console.log("");
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+    prompt: "MoroAI 1 > "
+  });
+
+  rl.prompt();
+
+  rl.on("line", async line => {
+    try {
+      await handleInput(line);
+    } catch (error) {
+      console.log("");
+      console.log("ERROR:", error.message);
+    }
+
+    rl.prompt();
+  });
+
+  rl.on("SIGINT", () => {
+    console.log("");
+    console.log("MoroAI 1 > EXIT");
+    rl.close();
+    process.exit(0);
+  });
+}
+
+start().catch(error => {
+  console.error("FATAL:", error);
+  process.exit(1);
+});

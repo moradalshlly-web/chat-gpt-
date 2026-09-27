@@ -1,0 +1,401 @@
+export class CodingBrain {
+  constructor({
+    registry,
+    planner,
+    execution
+  }) {
+    this.registry = registry;
+    this.planner = planner;
+    this.execution = execution;
+    this.version = "2.0.0";
+  }
+
+  normalizeTask(prompt) {
+    return String(prompt || "")
+      .trim()
+      .replace(/\s+/g, " ");
+  }
+
+  classifyTask(task) {
+    const text = task.toLowerCase();
+
+    if (/اقرأ|اقري|read|show|اعرض/.test(text)) {
+      return "READ";
+    }
+
+    if (/ابحث|بحث|search|find|وين موجود/.test(text)) {
+      return "SEARCH";
+    }
+
+    if (/اختبر|اختبار|test|tests|check/.test(text)) {
+      return "TEST";
+    }
+
+    if (
+      /اصلح|أصلح|صلح|خطأ|غلط|error|bug|debug/.test(text)
+    ) {
+      return "DEBUG";
+    }
+
+    if (
+      /عدل|عدّل|غير|غيّر|طور|طوّر|حسن|حسّن|fix|edit|modify|implement/.test(text)
+    ) {
+      return "MODIFY";
+    }
+
+    if (
+      /أنشئ|انشئ|إنشاء|create|build|make/.test(text)
+    ) {
+      return "CREATE";
+    }
+
+    return "ANALYZE";
+  }
+
+  extractFiles(task) {
+    const matches =
+      task.match(
+        /(?:[\w.-]+\/)*[\w.-]+\.(?:js|mjs|cjs|ts|tsx|jsx|json|py|java|kt|go|rs|cpp|c|html|css|md|yml|yaml|sh)/gi
+      ) || [];
+
+    return [...new Set(matches)];
+  }
+
+  async inspectRepository() {
+    return await this.registry.execute(
+      "repository_map"
+    );
+  }
+
+  async inspectFiles(files = []) {
+    const results = [];
+
+    for (const file of files) {
+      try {
+        const exists =
+          await this.registry.execute(
+            "file_exists",
+            file
+          );
+
+        if (!exists) {
+          results.push({
+            file,
+            exists: false
+          });
+
+          continue;
+        }
+
+        const content =
+          await this.registry.execute(
+            "read_file",
+            file
+          );
+
+        results.push({
+          file,
+          exists: true,
+          size: String(content).length,
+          content: String(content)
+        });
+      } catch (error) {
+        results.push({
+          file,
+          exists: false,
+          error: error.message
+        });
+      }
+    }
+
+    return results;
+  }
+
+  extractDependencies(content = "") {
+    const dependencies = [];
+
+    const patterns = [
+      /from\s+["']([^"']+)["']/g,
+      /import\s+["']([^"']+)["']/g,
+      /require\s*\(\s*["']([^"']+)["']\s*\)/g,
+      /import\s*\(\s*["']([^"']+)["']\s*\)/g
+    ];
+
+    for (const pattern of patterns) {
+      let match;
+
+      while ((match = pattern.exec(content)) !== null) {
+        dependencies.push(match[1]);
+      }
+    }
+
+    return [...new Set(dependencies)];
+  }
+
+  analyzeDependencies(inspectedFiles = []) {
+    const results = [];
+
+    for (const item of inspectedFiles) {
+      if (!item.exists || item.error) {
+        continue;
+      }
+
+      const dependencies =
+        this.extractDependencies(
+          item.content || ""
+        );
+
+      results.push({
+        file: item.file,
+        dependencies
+      });
+    }
+
+    return results;
+  }
+
+  buildContext(inspectedFiles = []) {
+    return inspectedFiles.map(item => ({
+      file: item.file,
+      exists: item.exists,
+      size: item.size || 0,
+      error: item.error || null
+    }));
+  }
+
+  calculateRisk({
+    intent,
+    files,
+    dependencies
+  }) {
+    if (intent === "READ" || intent === "SEARCH") {
+      return {
+        level: "LOW",
+        reasons: [
+          "Read-only operation."
+        ]
+      };
+    }
+
+    if (intent === "TEST") {
+      return {
+        level: "LOW",
+        reasons: [
+          "Testing operation without requested source modification."
+        ]
+      };
+    }
+
+    const dependencyCount =
+      dependencies.reduce(
+        (total, item) =>
+          total + item.dependencies.length,
+        0
+      );
+
+    if (intent === "CREATE") {
+      return {
+        level:
+          dependencyCount > 5
+            ? "MEDIUM"
+            : "LOW",
+        reasons: [
+          "Creation task may introduce new project dependencies."
+        ]
+      };
+    }
+
+    if (
+      intent === "MODIFY" ||
+      intent === "DEBUG"
+    ) {
+      if (files.length > 3 || dependencyCount > 8) {
+        return {
+          level: "HIGH",
+          reasons: [
+            "Multiple files or dependencies may be affected.",
+            "Additional verification is recommended."
+          ]
+        };
+      }
+
+      if (files.length > 0 || dependencyCount > 0) {
+        return {
+          level: "MEDIUM",
+          reasons: [
+            "Existing project code or dependencies may be affected."
+          ]
+        };
+      }
+
+      return {
+        level: "MEDIUM",
+        reasons: [
+          "Source modification requested."
+        ]
+      };
+    }
+
+    return {
+      level: "LOW",
+      reasons: [
+        "No high-impact modification detected."
+      ]
+    };
+  }
+
+  buildStrategy(
+    task,
+    intent,
+    files,
+    risk
+  ) {
+    const strategy = {
+      intent,
+      files,
+      risk: risk.level,
+      stages: []
+    };
+
+    strategy.stages.push("UNDERSTAND");
+    strategy.stages.push("INSPECT");
+
+    if (
+      intent === "CREATE" ||
+      intent === "MODIFY" ||
+      intent === "DEBUG"
+    ) {
+      strategy.stages.push(
+        "ANALYZE_DEPENDENCIES"
+      );
+
+      strategy.stages.push(
+        "ANALYZE_CONTEXT"
+      );
+
+      strategy.stages.push(
+        "PLAN_CHANGE"
+      );
+
+      strategy.stages.push(
+        "IMPLEMENT"
+      );
+
+      strategy.stages.push(
+        "VERIFY"
+      );
+    }
+
+    if (intent === "READ") {
+      strategy.stages.push("READ");
+    }
+
+    if (intent === "SEARCH") {
+      strategy.stages.push("SEARCH");
+    }
+
+    if (intent === "TEST") {
+      strategy.stages.push("VERIFY");
+    }
+
+    strategy.stages.push("FINAL_REVIEW");
+
+    return strategy;
+  }
+
+  async analyze(prompt) {
+    const task =
+      this.normalizeTask(prompt);
+
+    if (!task) {
+      throw new Error("EMPTY_TASK");
+    }
+
+    const intent =
+      this.classifyTask(task);
+
+    const files =
+      this.extractFiles(task);
+
+    const repository =
+      await this.inspectRepository();
+
+    const inspectedFiles =
+      await this.inspectFiles(files);
+
+    const context =
+      this.buildContext(
+        inspectedFiles
+      );
+
+    const dependencies =
+      this.analyzeDependencies(
+        inspectedFiles
+      );
+
+    const risk =
+      this.calculateRisk({
+        intent,
+        files,
+        dependencies
+      });
+
+    const strategy =
+      this.buildStrategy(
+        task,
+        intent,
+        files,
+        risk
+      );
+
+    return {
+      version: this.version,
+      task,
+      intent,
+      files,
+
+      repository: {
+        totalFiles:
+          repository.totalFiles,
+        totalDirectories:
+          repository.totalDirectories
+      },
+
+      context,
+
+      dependencies,
+
+      risk,
+
+      strategy
+    };
+  }
+
+  async think(prompt) {
+    const analysis =
+      await this.analyze(prompt);
+
+    const plan =
+      this.planner.createPlan(
+        analysis.task
+      );
+
+    return {
+      analysis,
+
+      plan,
+
+      decision: {
+        ready:
+          Array.isArray(plan) &&
+          plan.length > 0,
+
+        risk:
+          analysis.risk.level,
+
+        reason:
+          "Task analyzed with repository context, dependency intelligence, and risk assessment."
+      }
+    };
+  }
+}

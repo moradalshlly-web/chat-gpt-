@@ -1,0 +1,121 @@
+export class Planner {
+  constructor() {
+    this.version = "1.0.0";
+  }
+
+  createPlan(prompt) {
+    const text = String(prompt || "").trim();
+
+    if (!text) {
+      return [];
+    }
+
+    const lower = text.toLowerCase();
+
+    const actions = [];
+
+    /*
+     * Repository inspection is always the first
+     * executable operation for coding tasks.
+     */
+    actions.push({
+      type: "REPOSITORY_MAP"
+    });
+
+    /*
+     * Explicit file read request.
+     */
+    const readMatch = text.match(
+      /(?:اقرأ|اقري|read)\s+([^\s]+)/i
+    );
+
+    if (readMatch) {
+      actions.push({
+        type: "READ",
+        target: readMatch[1]
+      });
+    }
+
+    /*
+     * Explicit search request.
+     */
+    const searchMatch = text.match(
+      /(?:ابحث|بحث|search)\s+(.+)/i
+    );
+
+    if (searchMatch) {
+      actions.push({
+        type: "SEARCH",
+        query: searchMatch[1].trim()
+      });
+    }
+
+    /*
+     * Coding / modification intent.
+     */
+    const codingIntent =
+      lower.includes("عدّل") ||
+      lower.includes("عدل") ||
+      lower.includes("اصلح") ||
+      lower.includes("أصلح") ||
+      lower.includes("صلح") ||
+      lower.includes("طور") ||
+      lower.includes("طوّر") ||
+      lower.includes("برمج") ||
+      lower.includes("أنشئ") ||
+      lower.includes("انشئ") ||
+      lower.includes("create") ||
+      lower.includes("build") ||
+      lower.includes("fix") ||
+      lower.includes("edit") ||
+      lower.includes("implement");
+
+    if (codingIntent) {
+      actions.push({
+        type: "ANALYZE_TASK",
+        prompt: text
+      });
+
+      actions.push({
+        type: "VERIFY_ENVIRONMENT"
+      });
+
+      actions.push({
+        type: "TEST"
+      });
+    }
+
+    return [
+      {
+        step: 1,
+        action: "UNDERSTAND",
+        description:
+          "Understand the requested task and determine its intent."
+      },
+      {
+        step: 2,
+        action: "INSPECT",
+        description:
+          "Inspect the repository and identify relevant files.",
+        actions: [
+          {
+            type: "REPOSITORY_MAP"
+          }
+        ]
+      },
+      {
+        step: 3,
+        action: "IMPLEMENT",
+        description:
+          "Generate controlled executable actions for the requested task.",
+        actions
+      },
+      {
+        step: 4,
+        action: "VERIFY",
+        description:
+          "Validate the result and detect remaining problems."
+      }
+    ];
+  }
+}

@@ -1,0 +1,148 @@
+import { ActionValidator } from "./ActionValidator.js";
+
+export class ExecutionEngine {
+  constructor({ agent, registry }) {
+    this.agent = agent;
+    this.registry = registry;
+    this.validator = new ActionValidator({ agent });
+  }
+
+  async readFile(target) {
+    return await this.registry.execute("read_file", target);
+  }
+
+  async search(query) {
+    return await this.registry.execute("search_code", query);
+  }
+
+  async fileExists(target) {
+    return await this.registry.execute("file_exists", target);
+  }
+
+  async writeFile(target, content, approved = false) {
+    if (!this.agent.config.allowFileWrite) {
+      throw new Error("FILE_WRITE_BLOCKED");
+    }
+
+    if (
+      this.agent.config.requirePlanBeforeWrite &&
+      !approved
+    ) {
+      throw new Error("PLAN_REQUIRED_BEFORE_WRITE");
+    }
+
+    return await this.registry.execute(
+      "write_file",
+      target,
+      content
+    );
+  }
+
+  async shell(command) {
+    if (!this.agent.config.allowShell) {
+      throw new Error("SHELL_BLOCKED");
+    }
+
+    return await this.registry.execute(
+      "shell",
+      command
+    );
+  }
+
+  async executeAction(action) {
+    const validation = this.validator.validateAction(action);
+
+    if (!validation.valid) {
+      throw new Error(validation.error);
+    }
+
+    if (!action || typeof action !== "object") {
+      throw new Error("INVALID_ACTION");
+    }
+
+    const type = String(action.type || "").toUpperCase();
+
+    switch (type) {
+      case "READ":
+        return {
+          type,
+          success: true,
+          result: await this.readFile(action.target)
+        };
+
+      case "SEARCH":
+        return {
+          type,
+          success: true,
+          result: await this.search(action.query)
+        };
+
+      case "WRITE":
+        return {
+          type,
+          success: true,
+          result: await this.writeFile(
+            action.target,
+            action.content,
+            true
+          )
+        };
+
+      case "SHELL":
+        return {
+          type,
+          success: true,
+          result: await this.shell(action.command)
+        };
+
+      case "CHECK_FILE":
+        return {
+          type,
+          success: true,
+          result: await this.fileExists(action.target)
+        };
+
+      default:
+        throw new Error(
+          `UNKNOWN_ACTION: ${type || "EMPTY"}`
+        );
+    }
+  }
+
+  async executePlan(plan) {
+    if (!Array.isArray(plan)) {
+      throw new Error("INVALID_PLAN");
+    }
+
+    const results = [];
+
+    for (let index = 0; index < plan.length; index++) {
+      const action = plan[index];
+
+      try {
+        const result = await this.executeAction(action);
+
+        results.push({
+          index,
+          success: true,
+          action,
+          result
+        });
+      } catch (error) {
+        results.push({
+          index,
+          success: false,
+          action,
+          error: error.message
+        });
+
+        break;
+      }
+    }
+
+    return {
+      success: results.every(item => item.success),
+      results
+    };
+  }
+}

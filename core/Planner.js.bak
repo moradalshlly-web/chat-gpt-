@@ -1,0 +1,107 @@
+export class Planner {
+  createPlan(prompt) {
+    const text = String(prompt || "").trim();
+
+    if (!text) {
+      return [];
+    }
+
+    const actions = this.createActions(text);
+
+    return [
+      {
+        step: 1,
+        action: "UNDERSTAND",
+        description:
+          "Understand the requested change and identify affected areas."
+      },
+      {
+        step: 2,
+        action: "INSPECT",
+        description:
+          "Inspect the repository before modifying files."
+      },
+      {
+        step: 3,
+        action: "IMPLEMENT",
+        description:
+          "Implement the smallest safe change required.",
+        actions
+      },
+      {
+        step: 4,
+        action: "VERIFY",
+        description:
+          "Run available validation commands and inspect the result."
+      }
+    ];
+  }
+
+  createActions(prompt) {
+    const text = String(prompt || "").trim();
+
+    if (!text) {
+      return [];
+    }
+
+    const actions = [];
+
+    const readMatch = text.match(
+      /(?:read|open|show|اقرأ|افتح|اعرض)\s+(?:file\s+)?([^\s]+)/i
+    );
+
+    if (readMatch) {
+      actions.push({
+        type: "READ",
+        target: readMatch[1]
+      });
+    }
+
+    const searchMatch = text.match(
+      /(?:search|find|look\s+for|ابحث|دور|فتش)\s+(?:for\s+)?(.+)/i
+    );
+
+    if (searchMatch) {
+      actions.push({
+        type: "SEARCH",
+        query: searchMatch[1].trim()
+      });
+    }
+
+    const checkMatch = text.match(
+      /(?:check|verify|test\s+file|تحقق|افحص)\s+(?:file\s+)?([^\s]+)/i
+    );
+
+    if (checkMatch) {
+      actions.push({
+        type: "CHECK_FILE",
+        target: checkMatch[1]
+      });
+    }
+
+    const writeMatch = text.match(
+      /(?:create|write|make|أنشئ|اكتب|سوي)\s+(?:file\s+)?([^\s]+)\s+(?:with|containing|بمحتوى|يحتوي)\s+([\s\S]+)/i
+    );
+
+    if (writeMatch) {
+      actions.push({
+        type: "WRITE",
+        target: writeMatch[1],
+        content: writeMatch[2].trim()
+      });
+    }
+
+    const shellMatch = text.match(
+      /(?:run|execute|شغل|نفذ)\s+(?:command\s+)?([\s\S]+)/i
+    );
+
+    if (shellMatch) {
+      actions.push({
+        type: "SHELL",
+        command: shellMatch[1].trim()
+      });
+    }
+
+    return actions;
+  }
+}
